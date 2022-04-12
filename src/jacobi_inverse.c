@@ -25,7 +25,7 @@
  * @param q 操作唯独索引2
  * @param M 方阵阶数
  */
-static void __rotation_left(float *Matrix_real, float *Matrix_imag, float theta, int p, int q, int M);
+static void __rotation_left(double *Matrix_real, double *Matrix_imag, double theta, int p, int q, int M);
 
 /**
  * @brief 右乘Givns rotation矩阵
@@ -37,7 +37,7 @@ static void __rotation_left(float *Matrix_real, float *Matrix_imag, float theta,
  * @param q 操作唯独索引2
  * @param M 方阵阶数
  */
-static void __rotation_right(float *Matrix_real, float *Matrix_imag, float theta, int p, int q, int M);
+static void __rotation_right(double *Matrix_real, double *Matrix_imag, double theta, int p, int q, int M);
 
 /**
  * @brief 计算矩阵的F范数（所有元素模长平方和的开方）
@@ -47,7 +47,7 @@ static void __rotation_right(float *Matrix_real, float *Matrix_imag, float theta
  * @param M(in) 方阵阶数
  * @param f_norm(out) 输出F范数
  */
-static void __frobenius_norm(float *Matrix_real, float *Matrix_imag, int M, float *f_norm);
+static void __frobenius_norm(double *Matrix_real, double *Matrix_imag, int M, double *f_norm);
 
 /**
  * @brief 计算非对角上三角部分的f范数
@@ -57,17 +57,17 @@ static void __frobenius_norm(float *Matrix_real, float *Matrix_imag, int M, floa
  * @param M(in) 方阵阶数
  * @param off(out) 输出F范数
  */
-static void __off_diag(float *Matrix_real, float *Matrix_imag, int M, float *off);
+static void __off_diag(double *Matrix_real, double *Matrix_imag, int M, double *off);
 
-static void __cal_transform_matrix(float *V_real,
-                                   float *V_imag,
-                                   float theta_1,
-                                   float theta_2,
+static void __cal_transform_matrix(double *V_real,
+                                   double *V_imag,
+                                   double theta_1,
+                                   double theta_2,
                                    int p,
                                    int q,
                                    int M,
-                                   float *T_real,
-                                   float *T_imag);
+                                   double *T_real,
+                                   double *T_imag);
 /* end func declare */
 
 /**
@@ -84,11 +84,11 @@ int jacobi_inverse_create(ji_t **inst, int M)
     ji_t *self = (ji_t*)calloc(1, sizeof(ji_t));
     self->M = M;
     self->m_index = (int*)calloc(M-1, sizeof(int));
-    self->V_real = (float*)calloc(M*M, sizeof(float));
-    self->V_imag = (float*)calloc(M*M, sizeof(float));
-    self->T_real = (float*)calloc(M*2, sizeof(float));
-    self->T_imag = (float*)calloc(M*2, sizeof(float));
-    self->eig_values = (float*)calloc(M, sizeof(float));
+    self->V_real = (double*)calloc(M*M, sizeof(double));
+    self->V_imag = (double*)calloc(M*M, sizeof(double));
+    self->T_real = (double*)calloc(M*2, sizeof(double));
+    self->T_imag = (double*)calloc(M*2, sizeof(double));
+    self->eig_values = (double*)calloc(M, sizeof(double));
 
     *inst = self;
 
@@ -146,20 +146,23 @@ int jacobi_inverse_destroy(ji_t *inst)
  * @return int 0 -- success; others -- failed
  */
 int jacobi_inverse(ji_t *inst,
-                   float *Matrix_real,
-                   float *Matrix_imag)
+                   double *Matrix_real,
+                   double *Matrix_imag,
+                   double *inv_real,
+                   double *inv_imag,
+                   double diag_compensation)
 {
-    float tolerance = 1e-6; /* 收敛目标系数 */
-    float eps = 0; /* 误差 */
-    float f_norm = 0; /* 矩阵F范数 */
-    float off = 0; /* 迭代前后非对角部分上三角范数 */ 
-    float *V_real = inst->V_real, *V_imag = inst->V_imag;
-    float *T_real = inst->T_real, *T_imag = inst->T_imag;
-    float tmp_max = 0, tmp = 0;
-    float real = 0, imag = 0, magn = 0;
-    float phi_1 = 0, phi_2 = 0;
-    float theta_1 = 0, theta_2 = 0;
-    float *eig_value = inst->eig_values;
+    double tolerance = 1e-8; /* 收敛目标系数 */
+    double eps = 0; /* 误差 */
+    double f_norm = 0; /* 矩阵F范数 */
+    double off = 0; /* 迭代前后非对角部分上三角范数 */ 
+    double *V_real = inst->V_real, *V_imag = inst->V_imag;
+    double *T_real = inst->T_real, *T_imag = inst->T_imag;
+    double tmp_max = 0, tmp = 0;
+    double real = 0, imag = 0, magn = 0;
+    double phi_1 = 0, phi_2 = 0;
+    double theta_1 = 0, theta_2 = 0;
+    double *eig_value = inst->eig_values;
     int iter = 0, i = 0, j = 0, k = 0; /* 迭代索引 */
     int M = inst->M;
     int *m_index = inst->m_index;
@@ -168,16 +171,20 @@ int jacobi_inverse(ji_t *inst,
     // TODO 检查输入方阵为Hermitian矩阵
 
     /* 将特征向量矩阵初始化为单位阵 */
-    memset(V_real, 0, sizeof(float)*M*M);
-    memset(V_imag, 0, sizeof(float)*M*M);
+    memset(V_real, 0, sizeof(double)*M*M);
+    memset(V_imag, 0, sizeof(double)*M*M);
+    memcpy(inv_real, Matrix_real, sizeof(double)*M*M);
+    memcpy(inv_imag, Matrix_imag, sizeof(double)*M*M);
     for (i=0; i<M; i++) {
+
        *(V_real+i*M+i) = 1;
+       *(inv_real+i*M+i) += diag_compensation;
     }
     for (i=0; i<M-1; i++) {
         tmp_max = 0;
         for (j=i+1; j<M; j++) {
-            real = *(Matrix_real+M*i+j);
-            imag = *(Matrix_imag+M*i+j);
+            real = *(inv_real+M*i+j);
+            imag = *(inv_imag+M*i+j);
             magn = real*real+imag*imag;
             if (magn > tmp_max) {
                 tmp_max = magn;
@@ -186,18 +193,17 @@ int jacobi_inverse(ji_t *inst,
             }
         }
     }
-    __off_diag(Matrix_real, Matrix_imag, M, &off);
-    __frobenius_norm(Matrix_real, Matrix_imag, M, &f_norm);
+    __off_diag(inv_real, inv_imag, M, &off);
+    __frobenius_norm(inv_real, inv_imag, M, &f_norm);
     eps = f_norm*tolerance;
-    // eps = 0.000001;
     while ((off>eps) && (iter<MAX_JOCIBI_ITERS)) {
         /* 确认非对角部分中，模长最大的项的索引 */
         /* m_index中记录当前矩阵非对角部分的每一行对应的最大模长的列索引。因此只需要比较m_index中的M-1个值，而不是全部遍历 */
         tmp_max = 0;
         for (i=0; i<M-1; i++) {
             j = *(m_index+i); /* 第i行最大模长对应的列索引 */
-            real = *(Matrix_real+i*M+j);
-            imag = *(Matrix_imag+i*M+j);
+            real = *(inv_real+i*M+j);
+            imag = *(inv_imag+i*M+j);
             magn = real*real+imag*imag;
             if (magn > tmp_max) {
                 tmp_max = magn;
@@ -206,15 +212,15 @@ int jacobi_inverse(ji_t *inst,
             }
         }
 
-        real = *(Matrix_real+p*M+q);
-        imag = *(Matrix_imag+p*M+q);
+        real = *(inv_real+p*M+q);
+        imag = *(inv_imag+p*M+q);
         magn = sqrt(real*real+imag*imag);
         if (!real) {
             phi_1 = 0;
         } else {
             phi_1 = atan(imag/real);
         }
-        tmp = *(Matrix_real+p*M+p)-*(Matrix_real+q*M+q);
+        tmp = *(inv_real+p*M+p)-*(inv_real+q*M+q);
         if (!tmp) {
             phi_2 = 0;
         } else {
@@ -222,10 +228,10 @@ int jacobi_inverse(ji_t *inst,
         }
         theta_1 = (2*phi_1-PI)/4;
         theta_2 = phi_2/2;
-        __rotation_left(Matrix_real, Matrix_imag, theta_1, p, q, M);
-        __rotation_left(Matrix_real, Matrix_imag, theta_2, p, q, M);
-        __rotation_right(Matrix_real, Matrix_imag, theta_1, p, q, M);
-        __rotation_right(Matrix_real, Matrix_imag, theta_2, p, q, M);
+        __rotation_left(inv_real, inv_imag, theta_1, p, q, M);
+        __rotation_left(inv_real, inv_imag, theta_2, p, q, M);
+        __rotation_right(inv_real, inv_imag, theta_1, p, q, M);
+        __rotation_right(inv_real, inv_imag, theta_2, p, q, M);
         /* 构建本次迭代中的旋转变换矩阵 */
         __cal_transform_matrix(V_real, V_imag, theta_1, theta_2, p, q, M, T_real, T_imag);
         /* 更新变化行的模长最大索引 */
@@ -233,8 +239,8 @@ int jacobi_inverse(ji_t *inst,
             tmp_max = 0;
             if ((p==i) || (q==i)) {
                 for (j=i+1; j<M; j++) {
-                    real = *(Matrix_real+i*M+j);
-                    imag = *(Matrix_imag+i*M+j);
+                    real = *(inv_real+i*M+j);
+                    imag = *(inv_imag+i*M+j);
                     magn = real*real+imag+imag;
                     if (magn>tmp_max) {
                         tmp_max = magn;
@@ -243,12 +249,12 @@ int jacobi_inverse(ji_t *inst,
                 }
             } else {
                 int row_max = *(m_index+i);
-                real = *(Matrix_real+i*M+row_max);
-                imag = *(Matrix_imag+i*M+row_max);
+                real = *(inv_real+i*M+row_max);
+                imag = *(inv_imag+i*M+row_max);
                 tmp_max = real*real+imag*imag;
                 if (p>i) {
-                    real = *(Matrix_real+i*M+p);
-                    imag = *(Matrix_imag+i*M+p);
+                    real = *(inv_real+i*M+p);
+                    imag = *(inv_imag+i*M+p);
                     magn = real*real+imag*imag;
                     if (magn > tmp_max) {
                         tmp_max = magn;
@@ -256,8 +262,8 @@ int jacobi_inverse(ji_t *inst,
                     }
                 }
                 if (q>i) {
-                    real = *(Matrix_real+i*M+q);
-                    imag = *(Matrix_imag+i*M+q);
+                    real = *(inv_real+i*M+q);
+                    imag = *(inv_imag+i*M+q);
                     magn = real*real+imag*imag;
                     if (magn > tmp_max) {
                         tmp_max = magn;
@@ -267,7 +273,7 @@ int jacobi_inverse(ji_t *inst,
             }
         }
         /* 计算本次迭代后的非对角部分的范数 */
-        __off_diag(Matrix_real, Matrix_imag, M, &off);
+        __off_diag(inv_real, inv_imag, M, &off);
         iter++;
     }
 
@@ -286,11 +292,13 @@ int jacobi_inverse(ji_t *inst,
     }
 
     for (i=0; i<M; i++) {
-        *(eig_value+i) = *(Matrix_real+i*M+i);
+        *(eig_value+i) = *(inv_real+i*M+i);
     }
 
-    float i_k_real = 0;
-    float k_j_real = 0;
+    double i_k_real = 0;
+    double k_j_real = 0;
+    double i_k_imag = 0;
+    double k_j_imag = 0;
     for (i=0; i<M; i++) {
         /* 计算对角线上元素 */
         tmp = 0;
@@ -299,32 +307,32 @@ int jacobi_inverse(ji_t *inst,
             imag = *(V_imag+i*M+k);
             tmp += (real*real+imag*imag) / *(eig_value+k);
         }
-        *(Matrix_real+i*M+i) = tmp;
-        *(Matrix_imag+i*M+i) = 0;
+        *(inv_real+i*M+i) = tmp;
+        *(inv_imag+i*M+i) = 0;
         for (j=i+1; j<M; j++) {
             real = 0;
             imag = 0;
             /* 第i行的共厄和第j行的转置的内积 */
             for (k=0; k<M; k++) {
-                float i_k_real = *(V_real+i*M+k), i_k_imag = -1 * *(V_imag+i*M+k);
-                float k_j_real = *(V_real+j*M+k), k_j_imag = *(V_imag+j*M+k);
+                i_k_real = *(V_real+i*M+k), i_k_imag = -1 * *(V_imag+i*M+k);
+                k_j_real = *(V_real+j*M+k), k_j_imag = *(V_imag+j*M+k);
 
                 real += (i_k_real*k_j_real-i_k_imag*k_j_imag)/ *(eig_value+k);
                 imag += (i_k_imag*k_j_real+i_k_real*k_j_imag)/ *(eig_value+k);
             }
-            *(Matrix_real+i*M+j) = *(Matrix_real+j*M+i) = real;
-            *(Matrix_imag+i*M+j) = *(Matrix_imag+j*M+i) = imag;
+            *(inv_real+i*M+j) = *(inv_real+j*M+i) = real;
+            *(inv_imag+i*M+j) = *(inv_imag+j*M+i) = imag;
         }
     }
 
     return 0;
 }
 
-static void __rotation_left(float *Matrix_real, float *Matrix_imag, float theta, int p, int q, int M)
+static void __rotation_left(double *Matrix_real, double *Matrix_imag, double theta, int p, int q, int M)
 {
     int i = 0;
-    float cos_theta = cos(theta), sin_theta = sin(theta);
-    float p_real = 0, p_imag = 0, q_real = 0, q_imag = 0;
+    double cos_theta = cos(theta), sin_theta = sin(theta);
+    double p_real = 0, p_imag = 0, q_real = 0, q_imag = 0;
 
     for (i=0; i<M; i++) {
         p_real = *(Matrix_real+p*M+i);
@@ -340,11 +348,11 @@ static void __rotation_left(float *Matrix_real, float *Matrix_imag, float theta,
     }
 }
 
-static void __rotation_right(float *Matrix_real, float *Matrix_imag, float theta, int p, int q, int M)
+static void __rotation_right(double *Matrix_real, double *Matrix_imag, double theta, int p, int q, int M)
 {
     int i = 0;
-    float cos_theta = cos(theta), sin_theta = sin(theta);
-    float p_real = 0, p_imag = 0, q_real = 0, q_imag = 0;
+    double cos_theta = cos(theta), sin_theta = sin(theta);
+    double p_real = 0, p_imag = 0, q_real = 0, q_imag = 0;
 
     for (i=0; i<M; i++) {
         p_real = *(Matrix_real+i*M+p);
@@ -360,11 +368,11 @@ static void __rotation_right(float *Matrix_real, float *Matrix_imag, float theta
     }
 }
 
-static void __frobenius_norm(float *Matrix_real, float *Matrix_imag, int M, float *f_norm)
+static void __frobenius_norm(double *Matrix_real, double *Matrix_imag, int M, double *f_norm)
 {
     int i = 0, j = 0;
-    float tmp = 0, sum = 0;
-    float real = 0, imag = 0;
+    double tmp = 0, sum = 0;
+    double real = 0, imag = 0;
     for (i=0; i<M; i++) {
         /* 非对角中的上三角部分， 非对角的下三角部分和上三角平方和一致 */
         for (j=i+1; j<M; j++) {
@@ -381,11 +389,11 @@ static void __frobenius_norm(float *Matrix_real, float *Matrix_imag, int M, floa
     *f_norm = sqrt(sum);
 }
 
-static void __off_diag(float *Matrix_real, float *Matrix_imag, int M, float *off)
+static void __off_diag(double *Matrix_real, double *Matrix_imag, int M, double *off)
 {
     int i = 0, j = 0;
-    float tmp = 0;
-    float real = 0, imag = 0;
+    double tmp = 0;
+    double real = 0, imag = 0;
     for (i=0; i<M; i++) {
         /* 非对角中的上三角部分 */
         for (j=i+1; j<M; j++) {
@@ -397,32 +405,32 @@ static void __off_diag(float *Matrix_real, float *Matrix_imag, int M, float *off
     *off = sqrt(tmp);
 }
 
-static void __cal_transform_matrix(float *V_real,
-                                   float *V_imag,
-                                   float theta_1,
-                                   float theta_2,
+static void __cal_transform_matrix(double *V_real,
+                                   double *V_imag,
+                                   double theta_1,
+                                   double theta_2,
                                    int p,
                                    int q,
                                    int M,
-                                   float *T_real,
-                                   float *T_imag)
+                                   double *T_real,
+                                   double *T_imag)
 {
-    float sin_theta1 = sin(theta_1);
-    float cos_theta1 = cos(theta_1);
-    float sin_theta2 = sin(theta_2);
-    float cos_theta2 = cos(theta_2);
+    double sin_theta1 = sin(theta_1);
+    double cos_theta1 = cos(theta_1);
+    double sin_theta2 = sin(theta_2);
+    double cos_theta2 = cos(theta_2);
 
-    float R_p_p_real = -1*sin_theta1*sin_theta2, R_p_p_imag = -1*cos_theta1*sin_theta2;
-    float R_p_q_real = -1*cos_theta1*cos_theta2, R_p_q_imag = -1*sin_theta1*cos_theta2;
-    float R_q_p_real = cos_theta1*cos_theta2, R_q_p_imag = -1*sin_theta1*cos_theta2;
-    float R_q_q_real = -1*sin_theta1*sin_theta2, R_q_q_imag = cos_theta1*sin_theta2;
+    double R_p_p_real = -1*sin_theta1*sin_theta2, R_p_p_imag = -1*cos_theta1*sin_theta2;
+    double R_p_q_real = -1*cos_theta1*cos_theta2, R_p_q_imag = -1*sin_theta1*cos_theta2;
+    double R_q_p_real = cos_theta1*cos_theta2, R_q_p_imag = -1*sin_theta1*cos_theta2;
+    double R_q_q_real = -1*sin_theta1*sin_theta2, R_q_q_imag = cos_theta1*sin_theta2;
 
     int i = 0, j = 0;
     for (i=0; i<M; i++) {
         if ((i == p) || (i == q)) {
             for (j=0; j<M; j++) {
-                float V_p_j_real = *(V_real+p*M+j), V_p_j_imag = *(V_imag+p*M+j);
-                float V_q_j_real = *(V_real+q*M+j), V_q_j_imag = *(V_imag+q*M+j);
+                double V_p_j_real = *(V_real+p*M+j), V_p_j_imag = *(V_imag+p*M+j);
+                double V_q_j_real = *(V_real+q*M+j), V_q_j_imag = *(V_imag+q*M+j);
                 if (p == i) {
                     /* V(p, j) = R(p, p)*V(p, j)+R(p, q)*V(q, j) */
                     *(T_real+0*M+j) = (R_p_p_real*V_p_j_real-R_p_p_imag*V_p_j_imag)+(R_p_q_real*V_q_j_real-R_p_q_imag*V_q_j_imag);
